@@ -1,7 +1,7 @@
 {
   "name": "groot-music-bot",
   "version": "1.0.0",
-  "description": "Simple Discord music bot",
+  "description": "Discord music bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
