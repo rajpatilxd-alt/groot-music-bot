@@ -1,12 +1,10 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const { Player, QueryType } = require('discord-player');
-const { YoutubeiExtractor } = require('discord-player-youtubei');
 const fs = require('fs');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
-// Create client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -16,7 +14,6 @@ const client = new Client({
     ]
 });
 
-// Create player
 const player = new Player(client, {
     ytdlOptions: {
         quality: 'highestaudio',
@@ -24,18 +21,6 @@ const player = new Player(client, {
         filter: 'audioonly',
     }
 });
-
-// Register YouTube extractor
-async function registerExtractors() {
-    try {
-        await player.extractors.register(YoutubeiExtractor, {});
-        console.log('✅ YouTube extractor registered');
-        return true;
-    } catch (error) {
-        console.error('❌ Failed to register YouTube extractor:', error);
-        return false;
-    }
-}
 
 // Store prefixes
 let prefixes = {};
@@ -68,15 +53,12 @@ function resetPrefix(guildId) {
     return true;
 }
 
-// Ready event
-client.once('ready', async () => {
+client.once('ready', () => {
     console.log(`🌳 Groot is online as ${client.user.tag}`);
     console.log(`📊 Serving ${client.guilds.cache.size} servers`);
     client.user.setActivity('🎵 !play', { type: 2 });
-    await registerExtractors();
 });
 
-// Message handler
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
 
@@ -86,7 +68,7 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // ─── PLAY COMMAND ──────────────────────────────
+    // PLAY COMMAND
     if (command === 'play' || command === 'p') {
         if (!message.member.voice.channel) {
             return message.reply('🔊 You must be in a voice channel!');
@@ -100,10 +82,9 @@ client.on('messageCreate', async (message) => {
         try {
             await message.reply(`🔍 Searching for: **${query}**...`);
 
-            // Search for the song
             const result = await player.search(query, {
                 requestedBy: message.author,
-                searchEngine: QueryType.AUTO,
+                searchEngine: QueryType.YOUTUBE_SEARCH,
             });
 
             if (!result || !result.tracks.length) {
@@ -111,8 +92,6 @@ client.on('messageCreate', async (message) => {
             }
 
             const track = result.tracks[0];
-            
-            // Play the track
             const queue = await player.play(message.member.voice.channel, track, {
                 nodeOptions: {
                     metadata: message,
@@ -122,7 +101,6 @@ client.on('messageCreate', async (message) => {
                 },
             });
 
-            // Create embed
             const embed = new EmbedBuilder()
                 .setTitle('🎵 Now Playing')
                 .setDescription(`**[${track.title}](${track.url || '#'})**`)
@@ -130,8 +108,7 @@ client.on('messageCreate', async (message) => {
                 .setColor('#4ec76a')
                 .addFields(
                     { name: '👤 Artist', value: track.author || 'Unknown', inline: true },
-                    { name: '⏱ Duration', value: track.duration || 'Unknown', inline: true },
-                    { name: '📡 Source', value: track.source || 'YouTube', inline: true }
+                    { name: '⏱ Duration', value: track.duration || 'Unknown', inline: true }
                 )
                 .setTimestamp()
                 .setFooter({ text: `Requested by ${message.author.tag}` });
@@ -144,7 +121,7 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // ─── PAUSE COMMAND ─────────────────────────────
+    // PAUSE
     else if (command === 'pause') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('⏸ Nothing is playing!');
@@ -153,7 +130,7 @@ client.on('messageCreate', async (message) => {
         message.reply('⏸ Paused');
     }
 
-    // ─── RESUME COMMAND ────────────────────────────
+    // RESUME
     else if (command === 'resume') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('▶ Nothing is playing!');
@@ -162,7 +139,7 @@ client.on('messageCreate', async (message) => {
         message.reply('▶ Resumed');
     }
 
-    // ─── SKIP COMMAND ──────────────────────────────
+    // SKIP
     else if (command === 'skip') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('⏭ Nothing is playing!');
@@ -170,7 +147,7 @@ client.on('messageCreate', async (message) => {
         message.reply('⏭ Skipped');
     }
 
-    // ─── STOP COMMAND ──────────────────────────────
+    // STOP
     else if (command === 'stop') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue) return message.reply('⏹ Nothing is playing!');
@@ -178,7 +155,7 @@ client.on('messageCreate', async (message) => {
         message.reply('⏹ Stopped and cleared queue');
     }
 
-    // ─── QUEUE COMMAND ─────────────────────────────
+    // QUEUE
     else if (command === 'queue' || command === 'q') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue) return message.reply('📭 Queue is empty!');
@@ -195,13 +172,11 @@ client.on('messageCreate', async (message) => {
         message.reply({ embeds: [embed] });
     }
 
-    // ─── VOLUME COMMAND ────────────────────────────
+    // VOLUME
     else if (command === 'volume' || command === 'vol') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue) return message.reply('🔊 No music playing!');
-        
         if (!args.length) return message.reply(`🔊 Current volume: ${queue.node.volume}%`);
-        
         const vol = parseInt(args[0]);
         if (isNaN(vol) || vol < 0 || vol > 100) {
             return message.reply('🔊 Volume must be 0-100');
@@ -210,11 +185,10 @@ client.on('messageCreate', async (message) => {
         message.reply(`🔊 Volume set to ${vol}%`);
     }
 
-    // ─── LOOP COMMAND ──────────────────────────────
+    // LOOP
     else if (command === 'loop') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('🔄 Nothing is playing!');
-        
         const modes = ['off', 'track', 'queue'];
         const current = queue.repeatMode;
         const next = (current + 1) % 3;
@@ -222,7 +196,7 @@ client.on('messageCreate', async (message) => {
         message.reply(`🔁 Loop mode: ${modes[next]}`);
     }
 
-    // ─── SHUFFLE COMMAND ───────────────────────────
+    // SHUFFLE
     else if (command === 'shuffle') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.tracks.size) return message.reply('🔀 Queue is empty!');
@@ -230,11 +204,10 @@ client.on('messageCreate', async (message) => {
         message.reply('🔀 Shuffled queue');
     }
 
-    // ─── NOW PLAYING COMMAND ───────────────────────
+    // NOW PLAYING
     else if (command === 'np' || command === 'nowplaying') {
         const queue = player.nodes.get(message.guild.id);
         if (!queue || !queue.isPlaying()) return message.reply('🎵 Nothing is playing!');
-        
         const track = queue.currentTrack;
         const embed = new EmbedBuilder()
             .setTitle('🎵 Now Playing')
@@ -249,7 +222,7 @@ client.on('messageCreate', async (message) => {
         message.reply({ embeds: [embed] });
     }
 
-    // ─── LEAVE COMMAND ─────────────────────────────
+    // LEAVE
     else if (command === 'leave') {
         const queue = player.nodes.get(message.guild.id);
         if (queue) queue.delete();
@@ -262,36 +235,32 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // ─── SETPREFIX COMMAND (Admin only) ────────────
+    // SETPREFIX
     else if (command === 'setprefix') {
         if (!message.member.permissions.has('Administrator')) {
             return message.reply('❌ You need **Administrator** permissions!');
         }
-        
         if (!args.length) {
             return message.reply(`📝 Current prefix: \`${getPrefix(message.guild.id)}\``);
         }
-        
         const newPrefix = args[0];
         if (newPrefix.length > 3) {
             return message.reply('❌ Prefix must be 1-3 characters');
         }
-        
         setPrefix(message.guild.id, newPrefix);
         message.reply(`✅ Prefix changed to \`${newPrefix}\``);
     }
 
-    // ─── RESETPREFIX COMMAND (Admin only) ──────────
+    // RESETPREFIX
     else if (command === 'resetprefix') {
         if (!message.member.permissions.has('Administrator')) {
             return message.reply('❌ You need **Administrator** permissions!');
         }
-        
         resetPrefix(message.guild.id);
         message.reply(`✅ Prefix reset to \`${process.env.DEFAULT_PREFIX || '!'}\``);
     }
 
-    // ─── HELP COMMAND ──────────────────────────────
+    // HELP
     else if (command === 'help') {
         const embed = new EmbedBuilder()
             .setTitle('🌳 Groot Commands')
@@ -300,18 +269,15 @@ client.on('messageCreate', async (message) => {
                 { name: '🎵 Playback', value: '`play` `pause` `resume` `skip` `stop`', inline: true },
                 { name: '📋 Queue', value: '`queue` `shuffle` `loop` `np`', inline: true },
                 { name: '🔊 Control', value: '`volume` `leave`', inline: true },
-                { name: '⚙️ Admin', value: '`setprefix` `resetprefix`', inline: true },
-                { name: '👑 Owner', value: '`sudo`', inline: true }
+                { name: '⚙️ Admin', value: '`setprefix` `resetprefix`', inline: true }
             )
             .setTimestamp();
         message.reply({ embeds: [embed] });
     }
 });
 
-// Login
 client.login(process.env.DISCORD_TOKEN);
 
-// Error handling
 process.on('unhandledRejection', (error) => {
     console.error('Unhandled rejection:', error);
 });
