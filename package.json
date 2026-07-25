@@ -1,17 +1,22 @@
 {
-  "name": "groot-music-bot",
+  "name": "render-discord-music-bot",
   "version": "1.0.0",
-  "description": "Discord music bot",
-  "main": "index.js",
+  "private": true,
+  "description": "A Discord music bot with no Lavalink dependency.",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "@discordjs/voice": "^0.16.0",
-    "ytdl-core": "^4.11.5",
-    "yt-search": "^2.10.3",
-    "dotenv": "^16.3.1",
-    "ffmpeg-static": "^5.2.0"
+    "@discordjs/voice": "^0.18.0",
+    "discord.js": "^14.17.3",
+    "dotenv": "^16.4.7",
+    "ffmpeg-static": "^5.2.0",
+    "opusscript": "^0.1.1",
+    "play-dl": "^1.9.7"
   }
 }
