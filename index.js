@@ -1,5 +1,5 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, entersState, VoiceConnectionStatus } = require('@discordjs/voice');
 const ytdl = require('ytdl-core');
 const ytSearch = require('yt-search');
 const fs = require('fs');
@@ -83,37 +83,52 @@ async function playSong(guildId, message, video) {
                 adapterCreator: message.guild.voiceAdapterCreator,
             });
             connections.set(guildId, connection);
+
+            // Wait for connection to be ready
+            try {
+                await entersState(connection, VoiceConnectionStatus.Ready, 20000);
+                console.log('✅ Voice connection ready');
+            } catch (error) {
+                console.error('Voice connection timeout:', error);
+                connection.destroy();
+                connections.delete(guildId);
+                return message.reply('❌ Failed to connect to voice channel!');
+            }
         }
 
         // Create audio player
         const player = createAudioPlayer();
         players.set(guildId, player);
 
-        // Get audio stream
+        // Get audio stream with better options
         const stream = ytdl(video.url, {
             filter: 'audioonly',
             quality: 'highestaudio',
             highWaterMark: 1 << 25,
+            requestOptions: {
+                maxRedirects: 5,
+            },
         });
 
-        const resource = createAudioResource(stream);
+        // Create audio resource
+        const resource = createAudioResource(stream, {
+            inlineVolume: true,
+        });
+        resource.volume.setVolume(0.8);
+
+        // Play
         player.play(resource);
         connection.subscribe(player);
-
-        // Handle queue
-        if (!queues.has(guildId)) {
-            queues.set(guildId, []);
-        }
 
         // Send embed
         const embed = new EmbedBuilder()
             .setTitle('🎵 Now Playing')
             .setDescription(`**[${video.title}](${video.url})**`)
-            .setThumbnail(video.thumbnail)
+            .setThumbnail(video.thumbnail || '')
             .setColor('#4ec76a')
             .addFields(
-                { name: '👤 Artist', value: video.author.name || 'Unknown', inline: true },
-                { name: '⏱ Duration', value: video.duration.timestamp || 'Unknown', inline: true }
+                { name: '👤 Artist', value: video.author?.name || 'Unknown', inline: true },
+                { name: '⏱ Duration', value: video.duration?.timestamp || 'Unknown', inline: true }
             )
             .setTimestamp()
             .setFooter({ text: `Requested by ${message.author.tag}` });
@@ -122,20 +137,23 @@ async function playSong(guildId, message, video) {
 
         // Handle player events
         player.on(AudioPlayerStatus.Idle, () => {
+            console.log('Player idle, checking queue...');
             const queue = queues.get(guildId);
             if (queue && queue.length > 0) {
                 const nextVideo = queue.shift();
                 playSong(guildId, message, nextVideo);
             } else {
-                // Disconnect after 30 seconds of inactivity
+                // Disconnect after 30 seconds
                 setTimeout(() => {
-                    if (players.get(guildId)?.state?.status === 'idle') {
+                    const currentPlayer = players.get(guildId);
+                    if (currentPlayer && currentPlayer.state?.status === 'idle') {
                         const conn = connections.get(guildId);
                         if (conn) {
                             conn.destroy();
                             connections.delete(guildId);
                             players.delete(guildId);
                             queues.delete(guildId);
+                            console.log('Disconnected due to inactivity');
                         }
                     }
                 }, 30000);
@@ -144,12 +162,23 @@ async function playSong(guildId, message, video) {
 
         player.on('error', (error) => {
             console.error('Player error:', error);
-            message.channel.send('❌ Error playing song!');
+            message.channel.send('❌ Error playing song! Please try again.');
+            // Try to skip to next song
+            const queue = queues.get(guildId);
+            if (queue && queue.length > 0) {
+                const nextVideo = queue.shift();
+                playSong(guildId, message, nextVideo);
+            }
+        });
+
+        // Handle connection errors
+        connection.on('error', (error) => {
+            console.error('Connection error:', error);
         });
 
     } catch (error) {
         console.error('Play error:', error);
-        message.reply('❌ Error playing song!');
+        message.reply('❌ Error playing song! Please try again.');
     }
 }
 
@@ -189,7 +218,7 @@ client.on('messageCreate', async (message) => {
                 video = {
                     url: query,
                     title: info.videoDetails.title,
-                    thumbnail: info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1].url,
+                    thumbnail: info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1]?.url || '',
                     author: { name: info.videoDetails.author.name },
                     duration: { timestamp: info.videoDetails.lengthSeconds }
                 };
@@ -286,16 +315,6 @@ client.on('messageCreate', async (message) => {
         message.reply({ embeds: [embed] });
     }
 
-    // ─── VOLUME ──────────────────────────────────────
-    else if (command === 'volume' || command === 'vol') {
-        message.reply('🔊 Volume control coming soon! Use Spotify or YouTube volume instead.');
-    }
-
-    // ─── LOOP ────────────────────────────────────────
-    else if (command === 'loop') {
-        message.reply('🔄 Loop mode coming soon!');
-    }
-
     // ─── SHUFFLE ─────────────────────────────────────
     else if (command === 'shuffle') {
         const queue = queues.get(message.guild.id);
@@ -309,7 +328,7 @@ client.on('messageCreate', async (message) => {
 
     // ─── NOW PLAYING ─────────────────────────────────
     else if (command === 'np' || command === 'nowplaying') {
-        message.reply('🎵 Use the embed from !play to see what\'s playing!');
+        message.reply('🎵 Check the embed from the last !play command!');
     }
 
     // ─── LEAVE ──────────────────────────────────────
@@ -373,6 +392,10 @@ client.login(process.env.DISCORD_TOKEN);
 
 process.on('unhandledRejection', (error) => {
     console.error('Unhandled rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
 });
 
 process.on('uncaughtException', (error) => {
