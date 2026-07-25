@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: discord-music-bot
+    env: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: OWNER_ID
+        sync: false
