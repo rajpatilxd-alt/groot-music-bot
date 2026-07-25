@@ -1,0 +1,5 @@
+node_modules/
+.env
+prefixes.json
+logs/
+*.log
