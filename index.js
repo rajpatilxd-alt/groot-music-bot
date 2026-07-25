@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const { Player, QueryType } = require('discord-player');
+const { YoutubeiExtractor } = require('discord-player-youtubei');
 const fs = require('fs');
 const dotenv = require('dotenv');
 
@@ -16,12 +17,28 @@ const client = new Client({
 });
 
 // Create player
-const player = new Player(client);
+const player = new Player(client, {
+    ytdlOptions: {
+        quality: 'highestaudio',
+        highWaterMark: 1 << 25,
+        filter: 'audioonly',
+    }
+});
 
-// Store prefixes in memory
+// Register YouTube extractor
+async function registerExtractors() {
+    try {
+        await player.extractors.register(YoutubeiExtractor, {});
+        console.log('✅ YouTube extractor registered');
+        return true;
+    } catch (error) {
+        console.error('❌ Failed to register YouTube extractor:', error);
+        return false;
+    }
+}
+
+// Store prefixes
 let prefixes = {};
-
-// Load saved prefixes
 try {
     if (fs.existsSync('./prefixes.json')) {
         prefixes = JSON.parse(fs.readFileSync('./prefixes.json'));
@@ -30,17 +47,14 @@ try {
     console.log('No saved prefixes found');
 }
 
-// Save prefixes
 function savePrefixes() {
     fs.writeFileSync('./prefixes.json', JSON.stringify(prefixes, null, 2));
 }
 
-// Get prefix for server
 function getPrefix(guildId) {
     return prefixes[guildId] || process.env.DEFAULT_PREFIX || '!';
 }
 
-// Set prefix for server
 function setPrefix(guildId, newPrefix) {
     if (newPrefix.length > 3) return false;
     prefixes[guildId] = newPrefix;
@@ -48,7 +62,6 @@ function setPrefix(guildId, newPrefix) {
     return true;
 }
 
-// Reset prefix
 function resetPrefix(guildId) {
     delete prefixes[guildId];
     savePrefixes();
@@ -56,10 +69,11 @@ function resetPrefix(guildId) {
 }
 
 // Ready event
-client.once('ready', () => {
+client.once('ready', async () => {
     console.log(`🌳 Groot is online as ${client.user.tag}`);
     console.log(`📊 Serving ${client.guilds.cache.size} servers`);
     client.user.setActivity('🎵 !play', { type: 2 });
+    await registerExtractors();
 });
 
 // Message handler
@@ -86,39 +100,47 @@ client.on('messageCreate', async (message) => {
         try {
             await message.reply(`🔍 Searching for: **${query}**...`);
 
+            // Search for the song
             const result = await player.search(query, {
                 requestedBy: message.author,
                 searchEngine: QueryType.AUTO,
             });
 
-            if (!result.tracks.length) {
-                return message.reply('❌ No songs found!');
+            if (!result || !result.tracks.length) {
+                return message.reply('❌ No songs found! Try a different search term.');
             }
 
             const track = result.tracks[0];
+            
+            // Play the track
             const queue = await player.play(message.member.voice.channel, track, {
                 nodeOptions: {
                     metadata: message,
                     volume: 80,
+                    leaveOnEmpty: true,
+                    leaveOnEnd: false,
                 },
             });
 
+            // Create embed
             const embed = new EmbedBuilder()
                 .setTitle('🎵 Now Playing')
                 .setDescription(`**[${track.title}](${track.url || '#'})**`)
                 .setThumbnail(track.thumbnail || '')
                 .setColor('#4ec76a')
                 .addFields(
-                    { name: 'Artist', value: track.author || 'Unknown', inline: true },
-                    { name: 'Duration', value: track.duration || 'Unknown', inline: true }
+                    { name: '👤 Artist', value: track.author || 'Unknown', inline: true },
+                    { name: '⏱ Duration', value: track.duration || 'Unknown', inline: true },
+                    { name: '📡 Source', value: track.source || 'YouTube', inline: true }
                 )
-                .setTimestamp();
+                .setTimestamp()
+                .setFooter({ text: `Requested by ${message.author.tag}` });
 
             await message.reply({ embeds: [embed] });
 
         } catch (error) {
-            console.error(error);
-            message.reply('❌ Error playing song!');
+            console.error('Play error:', error);
+            message.reply(`❌ Error playing song! Please try again.`);
         }
     }
 
@@ -168,7 +190,8 @@ client.on('messageCreate', async (message) => {
             .addFields(
                 { name: 'Now Playing', value: queue.currentTrack?.title || 'None' },
                 { name: 'Up Next', value: tracks.join('\n') || 'Empty' }
-            );
+            )
+            .setTimestamp();
         message.reply({ embeds: [embed] });
     }
 
@@ -221,7 +244,8 @@ client.on('messageCreate', async (message) => {
             .addFields(
                 { name: 'Artist', value: track.author || 'Unknown', inline: true },
                 { name: 'Duration', value: track.duration || 'Unknown', inline: true }
-            );
+            )
+            .setTimestamp();
         message.reply({ embeds: [embed] });
     }
 
@@ -267,20 +291,6 @@ client.on('messageCreate', async (message) => {
         message.reply(`✅ Prefix reset to \`${process.env.DEFAULT_PREFIX || '!'}\``);
     }
 
-    // ─── SUDO COMMAND (Owner only) ─────────────────
-    else if (command === 'sudo') {
-        if (message.author.id !== process.env.OWNER_ID) {
-            return message.reply('❌ Only the bot owner can use this!');
-        }
-        
-        if (!args.length) return message.reply('❌ Usage: sudo <command>');
-        
-        const cmd = args.shift().toLowerCase();
-        // Re-run the command with sudo permissions
-        // This is a simple implementation - you can expand it
-        message.reply(`✅ Sudo executed: ${cmd}`);
-    }
-
     // ─── HELP COMMAND ──────────────────────────────
     else if (command === 'help') {
         const embed = new EmbedBuilder()
@@ -292,10 +302,20 @@ client.on('messageCreate', async (message) => {
                 { name: '🔊 Control', value: '`volume` `leave`', inline: true },
                 { name: '⚙️ Admin', value: '`setprefix` `resetprefix`', inline: true },
                 { name: '👑 Owner', value: '`sudo`', inline: true }
-            );
+            )
+            .setTimestamp();
         message.reply({ embeds: [embed] });
     }
 });
 
 // Login
 client.login(process.env.DISCORD_TOKEN);
+
+// Error handling
+process.on('unhandledRejection', (error) => {
+    console.error('Unhandled rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+});
